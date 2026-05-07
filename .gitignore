@@ -1,0 +1,15 @@
+# Downloaded boundary data (large shapefiles — re-run acquire_boundaries.py)
+data/
+
+# Intermediate GeoParquet files
+output/*.parquet
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+venv/
+.venv/
+env/

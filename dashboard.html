@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AHPAA Affordability &times; Senate Districts &mdash; Illinois</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="output/dashboard_data.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; font-size: 14px;
+         color: #222; background: #f5f5f5; }
+
+  header { background: #1a3a5c; color: #fff; padding: 14px 20px; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  header p  { font-size: 12px; opacity: .75; margin-top: 3px; }
+
+  .container { max-width: 1400px; margin: 0 auto; padding: 16px; }
+
+  .filters {
+    background: #fff; border: 1px solid #ddd; border-radius: 6px;
+    padding: 12px 16px; margin-bottom: 12px;
+    display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start;
+  }
+  .filter-group label.group-label {
+    display: block; font-weight: 600; font-size: 12px;
+    color: #555; margin-bottom: 6px; text-transform: uppercase; letter-spacing: .04em;
+  }
+  .filter-group .options { display: flex; flex-wrap: wrap; gap: 6px; }
+  .bucket-btn, .pop-btn, .map-btn {
+    border: 1px solid #ccc; border-radius: 4px; background: #f9f9f9;
+    padding: 4px 10px; cursor: pointer; font-size: 13px; display: flex;
+    align-items: center; gap: 5px; transition: all .15s;
+  }
+  .bucket-btn.active, .pop-btn.active, .map-btn.active {
+    border-color: #1a3a5c; background: #e8f0fb; font-weight: 600;
+  }
+  .swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+
+  .range-inputs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .range-inputs input[type="number"] {
+    width: 80px; border: 1px solid #ccc; border-radius: 4px;
+    padding: 4px 8px; font-size: 13px;
+  }
+  .range-inputs input[type="number"]:focus { outline: none; border-color: #1a3a5c; }
+  .range-inputs .sep { color: #888; font-size: 13px; }
+
+  #map { height: 500px; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 12px; }
+
+  .table-toolbar {
+    display: flex; align-items: center; margin-bottom: 8px; gap: 10px; flex-wrap: wrap;
+  }
+  .view-toggle { display: flex; gap: 0; border: 1px solid #ccc; border-radius: 4px; overflow: hidden; }
+  .view-btn {
+    border: none; background: #f9f9f9; padding: 6px 14px; cursor: pointer;
+    font-size: 13px; transition: all .15s;
+  }
+  .view-btn + .view-btn { border-left: 1px solid #ccc; }
+  .view-btn.active { background: #1a3a5c; color: #fff; font-weight: 600; }
+  .toolbar-search { flex: 1; min-width: 200px; max-width: 300px; }
+  .toolbar-search input {
+    width: 100%; border: 1px solid #ccc; border-radius: 4px;
+    padding: 6px 10px; font-size: 13px;
+  }
+  .toolbar-right { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+  #row-count { font-size: 13px; color: #555; white-space: nowrap; }
+  #export-btn {
+    background: #1a3a5c; color: #fff; border: none; border-radius: 4px;
+    padding: 7px 14px; cursor: pointer; font-size: 13px; white-space: nowrap;
+  }
+  #export-btn:hover { background: #23518a; }
+
+  .table-wrap { overflow-x: auto; border: 1px solid #ddd; border-radius: 6px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; }
+  thead th {
+    background: #f0f0f0; padding: 9px 12px; text-align: left;
+    font-size: 12px; font-weight: 600; color: #444; white-space: nowrap;
+    position: sticky; top: 0; cursor: pointer; user-select: none;
+    border-bottom: 2px solid #ddd;
+  }
+  thead th.no-sort { cursor: default; }
+  thead th:hover:not(.no-sort) { background: #e4e4e4; }
+  thead th .sort-arrow { margin-left: 4px; opacity: .4; }
+  thead th.sort-asc  .sort-arrow::after { content: " \25B2"; opacity: 1; }
+  thead th.sort-desc .sort-arrow::after { content: " \25BC"; opacity: 1; }
+
+  tbody tr { border-bottom: 1px solid #eee; }
+  tbody tr.muni-row { cursor: pointer; }
+  tbody tr.muni-row:hover { background: #f7f9ff; }
+  tbody tr.muni-row.selected { background: #dce8ff !important; }
+  tbody tr.district-header { cursor: pointer; }
+  tbody tr.district-header:hover td { filter: brightness(1.15); }
+  tbody tr.district-header td {
+    background: #1a3a5c; color: #fff; font-weight: 700;
+    padding: 8px 12px; font-size: 13px; letter-spacing: .03em;
+  }
+  tbody tr.district-member { cursor: pointer; }
+  tbody tr.district-member:hover { background: #f7f9ff; }
+  tbody tr.district-member.selected { background: #dce8ff !important; }
+  tbody tr.district-member td:first-child { padding-left: 28px; }
+  tbody td { padding: 7px 12px; font-size: 13px; vertical-align: top; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .badge {
+    display: inline-block; padding: 2px 7px; border-radius: 10px;
+    font-size: 11px; font-weight: 600; white-space: nowrap;
+  }
+  .badge-non-exempt      { background: #fde8e8; color: #b91c1c; }
+  .badge-affordable-low  { background: #fef3e2; color: #92400e; }
+  .badge-affordable-high { background: #dcfce7; color: #166534; }
+
+  .district-label {
+    background: transparent !important; border: none !important;
+    box-shadow: none !important; padding: 0 !important;
+    font-size: 11px; font-weight: 700; color: #1a3a5c;
+    text-shadow: 1px 1px 0 #fff, -1px -1px 0 #fff,
+                 1px -1px 0 #fff, -1px 1px 0 #fff,
+                 0 2px 4px rgba(255,255,255,.9);
+    pointer-events: none;
+  }
+  .district-label::before { display: none !important; }
+
+  footer {
+    margin-top: 16px; padding: 10px 0; border-top: 1px solid #e0e0e0;
+    font-size: 12px; color: #777; display: flex; gap: 20px; flex-wrap: wrap;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>AHPAA Affordability &times; Illinois Senate Districts</h1>
+  <p>2023 IHDA Affordable Housing Planning and Accountability Act &mdash; municipality crosswalk</p>
+</header>
+
+<div class="container">
+
+  <div class="filters">
+
+    <div class="filter-group">
+      <label class="group-label">Affordability Status</label>
+      <div class="options" id="bucket-filters">
+        <button class="bucket-btn active" data-bucket="non-exempt">
+          <span class="swatch" style="background:#d73027"></span>
+          Non-Exempt (&lt;10%)
+        </button>
+        <button class="bucket-btn active" data-bucket="affordable-low">
+          <span class="swatch" style="background:#fc8d59"></span>
+          Affordable 10&ndash;25%
+        </button>
+        <button class="bucket-btn active" data-bucket="affordable-high">
+          <span class="swatch" style="background:#1a9850"></span>
+          Affordable &gt;25%
+        </button>
+      </div>
+    </div>
+
+    <div class="filter-group">
+      <label class="group-label">Affordable % Range</label>
+      <div class="range-inputs">
+        <input type="number" id="share-min" min="0" max="100" step="1" placeholder="Min %">
+        <span class="sep">&ndash;</span>
+        <input type="number" id="share-max" min="0" max="100" step="1" placeholder="Max %">
+      </div>
+    </div>
+
+    <div class="filter-group">
+      <label class="group-label">Population (presets)</label>
+      <div class="options" id="pop-filters">
+        <button class="pop-btn active" data-pop="all">All</button>
+        <button class="pop-btn" data-pop="0-999">&lt;1K</button>
+        <button class="pop-btn" data-pop="1000-9999">1K&ndash;10K</button>
+        <button class="pop-btn" data-pop="10000-49999">10K&ndash;50K</button>
+        <button class="pop-btn" data-pop="50000-249999">50K&ndash;250K</button>
+        <button class="pop-btn" data-pop="250000-99999999">&gt;250K</button>
+      </div>
+    </div>
+
+    <div class="filter-group">
+      <label class="group-label">Population Range</label>
+      <div class="range-inputs">
+        <input type="number" id="pop-min" min="0" step="1" placeholder="Min">
+        <span class="sep">&ndash;</span>
+        <input type="number" id="pop-max" min="0" step="1" placeholder="Max">
+      </div>
+    </div>
+
+    <div class="filter-group">
+      <label class="group-label">Map Options</label>
+      <div class="options">
+        <button class="map-btn" id="label-toggle">Label Senate Districts</button>
+      </div>
+    </div>
+
+  </div>
+
+  <div id="map"></div>
+
+  <div class="table-toolbar">
+    <div class="view-toggle">
+      <button class="view-btn active" id="view-muni">By Municipality</button>
+      <button class="view-btn" id="view-district">By District</button>
+    </div>
+    <div class="toolbar-search">
+      <input type="search" id="search-box" placeholder="Search municipality, county, district&hellip;">
+    </div>
+    <div class="toolbar-right">
+      <span id="row-count"></span>
+      <button id="export-btn">&#x2B07; Export CSV</button>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table id="main-table">
+      <thead id="main-thead"><tr></tr></thead>
+      <tbody id="table-body"></tbody>
+    </table>
+  </div>
+
+  <footer>
+    <span>Source: IHDA AHPAA 2023 &middot; Census TIGER/Line 2023 &middot; ILSBE 2020 Senate Districts</span>
+    <span id="footer-spurious"></span>
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // -------------------------------------------------------------------------
+  // Data
+  // -------------------------------------------------------------------------
+
+  const munis     = DASHBOARD_DATA.municipalities.features;
+  const crosswalk = DASHBOARD_DATA.crosswalk;
+  const meta      = DASHBOARD_DATA.meta || {};
+
+  const muniMeta = {};
+  munis.forEach(f => {
+    const k = f.properties.municipality_name + '||' + f.properties.county;
+    muniMeta[k] = f.properties;
+  });
+
+  crosswalk.forEach(row => {
+    const k = row.municipality_name + '||' + row.county;
+    const mp = muniMeta[k];
+    row._bucket     = mp ? mp.bucket : 'unknown';
+    row._population = row.population || 0;
+  });
+
+  // -------------------------------------------------------------------------
+  // Pre-build aggregated views
+  // -------------------------------------------------------------------------
+
+  // One entry per (municipality, county) — used for muni-first view
+  function buildMuniAgg() {
+    const map = new Map();
+    crosswalk.forEach(row => {
+      const key = row.municipality_name + '||' + row.county;
+      if (!map.has(key)) {
+        map.set(key, {
+          municipality_name:       row.municipality_name,
+          county:                  row.county,
+          population:              row.population,
+          affordable_housing_share: row.affordable_housing_share,
+          non_exempt_status:       row.non_exempt_status,
+          _bucket:                 row._bucket,
+          _population:             row._population,
+          senate_districts:        [],
+        });
+      }
+      const d = String(row.senate_district);
+      const entry = map.get(key);
+      if (!entry.senate_districts.includes(d)) entry.senate_districts.push(d);
+    });
+    const result = Array.from(map.values());
+    result.forEach(m => m.senate_districts.sort((a, b) => Number(a) - Number(b)));
+    return result;
+  }
+
+  // Sorted by district number; rows within each district sorted by municipality name
+  function buildDistrictGroups() {
+    const map = new Map();
+    crosswalk.forEach(row => {
+      const d = String(row.senate_district);
+      if (!map.has(d)) map.set(d, []);
+      map.get(d).push(row);
+    });
+    return Array.from(map.entries())
+      .sort((a, b) => Number(a[0]) - Number(b[0]))
+      .map(([district, rows]) => ({
+        district,
+        rows: rows.slice().sort((a, b) => {
+          const na = (a.municipality_name || '').toLowerCase();
+          const nb = (b.municipality_name || '').toLowerCase();
+          return na < nb ? -1 : na > nb ? 1 : 0;
+        }),
+      }));
+  }
+
+  const munisAgg      = buildMuniAgg();
+  const districtGroups = buildDistrictGroups();
+
+  // -------------------------------------------------------------------------
+  // Filter / view state
+  // -------------------------------------------------------------------------
+
+  let currentView    = 'muni';
+  let activeBuckets  = new Set(['non-exempt', 'affordable-low', 'affordable-high']);
+  let activePopRange  = null;
+  let customPopRange  = null;
+  let customShareRange = null;
+  let sortCol   = 'affordable_housing_share';
+  let sortDir   = 'asc';
+  let searchTerm = '';
+  let selectedRow = null;
+  let labelsOn   = false;
+  let exportRows  = [];  // what the current CSV export should contain
+
+  // -------------------------------------------------------------------------
+  // Leaflet map
+  // -------------------------------------------------------------------------
+
+  const BUCKET_COLOR = {
+    'non-exempt':      '#d73027',
+    'affordable-low':  '#fc8d59',
+    'affordable-high': '#1a9850',
+    'unknown':         '#aaaaaa',
+  };
+
+  const map = L.map('map', {
+    center: [40.0, -89.3],
+    zoom: 7,
+    renderer: L.canvas(),
+  });
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '\xa9 OpenStreetMap contributors \xa9 CARTO',
+    maxZoom: 18,
+  }).addTo(map);
+
+  function effectivePopRange() {
+    return customPopRange || activePopRange;
+  }
+
+  function popPasses(pop) {
+    const range = effectivePopRange();
+    if (!range) return true;
+    const p = pop || 0;
+    return p >= range[0] && p <= range[1];
+  }
+
+  function sharePasses(share) {
+    if (!customShareRange) return true;
+    const pct = (share || 0) * 100;
+    return pct >= customShareRange[0] && pct <= customShareRange[1];
+  }
+
+  function muniStyle(feature) {
+    const p      = feature.properties;
+    const bucket = p.bucket || 'unknown';
+    const passes = activeBuckets.has(bucket) && popPasses(p.population) && sharePasses(p.affordable_housing_share);
+    return {
+      fillColor:   BUCKET_COLOR[bucket],
+      fillOpacity: passes ? 0.65 : 0.06,
+      color:       passes ? BUCKET_COLOR[bucket] : '#ccc',
+      weight:      passes ? 0.5 : 0.2,
+    };
+  }
+
+  let muniLayerMap = {};
+  let muniLayer    = null;
+
+  function buildMuniLayer() {
+    if (muniLayer) map.removeLayer(muniLayer);
+    muniLayerMap = {};
+    muniLayer = L.geoJSON(DASHBOARD_DATA.municipalities, {
+      style: muniStyle,
+      onEachFeature(feature, layer) {
+        const p = feature.properties;
+        const k = p.municipality_name + '||' + p.county;
+        muniLayerMap[k] = layer;
+
+        const sharePct = (p.affordable_housing_share * 100).toFixed(1);
+        const distList = (p.senate_districts || []).join(', ') || 'none in crosswalk';
+
+        const div = document.createElement('div');
+        const title = document.createElement('b');
+        title.textContent = p.municipality_name + ' — ' + p.county + ' County';
+        div.appendChild(title);
+        div.appendChild(document.createElement('br'));
+        ['Population: ' + (p.population || 0).toLocaleString(),
+         'Affordable share: ' + sharePct + '%',
+         'Status: ' + (p.non_exempt_status || '—'),
+         'Senate district(s): ' + distList,
+        ].forEach(line => {
+          const span = document.createElement('span');
+          span.textContent = line;
+          div.appendChild(span);
+          div.appendChild(document.createElement('br'));
+        });
+
+        layer.bindPopup(div);
+        layer.on('mouseover', function () { this.setStyle({ weight: 2, fillOpacity: 0.85 }); });
+        layer.on('mouseout',  function () { this.setStyle(muniStyle(feature)); });
+      },
+    }).addTo(map);
+  }
+
+  const senateLayerMap = {};
+  const senateLayer = L.geoJSON(DASHBOARD_DATA.districts, {
+    style: () => ({ fill: false, color: '#1a3a5c', weight: 2.5, opacity: 0.85 }),
+    onEachFeature(feature, layer) {
+      const id = String(feature.properties.senate_district);
+      senateLayerMap[id] = layer;
+      const div = document.createElement('div');
+      div.textContent = 'Senate District ' + id;
+      layer.bindPopup(div);
+    },
+  }).addTo(map);
+
+  buildMuniLayer();
+
+  function flyToDistrict(id) {
+    const layer = senateLayerMap[String(id)];
+    if (!layer) return;
+    document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    map.fitBounds(layer.getBounds(), { padding: [40, 40] });
+    layer.openPopup();
+  }
+
+  function flyToMuni(name, county) {
+    const k     = name + '||' + county;
+    const layer = muniLayerMap[k];
+    if (!layer) return;
+    document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    map.fitBounds(layer.getBounds(), { padding: [50, 50], maxZoom: 13 });
+    layer.openPopup();
+  }
+
+  // -------------------------------------------------------------------------
+  // Filter predicate (works on crosswalk rows AND munisAgg entries)
+  // -------------------------------------------------------------------------
+
+  function rowPasses(row) {
+    if (!activeBuckets.has(row._bucket)) return false;
+    if (!popPasses(row._population)) return false;
+    if (!sharePasses(row.affordable_housing_share)) return false;
+    if (searchTerm) {
+      const distStr = Array.isArray(row.senate_districts)
+        ? row.senate_districts.join(' ')
+        : (row.senate_district != null ? String(row.senate_district) : '');
+      const hay = (row.municipality_name + ' ' + row.county + ' ' + distStr).toLowerCase();
+      if (!hay.includes(searchTerm)) return false;
+    }
+    return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // Table constants
+  // -------------------------------------------------------------------------
+
+  const BUCKET_LABELS = {
+    'non-exempt':      'Non-Exempt',
+    'affordable-low':  'Affordable (10–25%)',
+    'affordable-high': 'Affordable (>25%)',
+  };
+
+  const tbody    = document.getElementById('table-body');
+  const thead    = document.getElementById('main-thead');
+  const rowCount = document.getElementById('row-count');
+
+  function makeTd(text, isNum, extraClass) {
+    const td = document.createElement('td');
+    let cls = '';
+    if (isNum) cls += 'num';
+    if (extraClass) cls += (cls ? ' ' : '') + extraClass;
+    if (cls) td.className = cls;
+    td.textContent = text;
+    return td;
+  }
+
+  function makeBadgeTd(bucket, fallback) {
+    const td    = document.createElement('td');
+    const badge = document.createElement('span');
+    badge.className  = 'badge badge-' + (bucket || 'unknown');
+    badge.textContent = BUCKET_LABELS[bucket] || fallback || bucket || '';
+    td.appendChild(badge);
+    return td;
+  }
+
+  function shareStr(val) {
+    const n = parseFloat(val);
+    return isNaN(n) ? '—' : (n * 100).toFixed(1) + '%';
+  }
+
+  function attachRowClick(tr, name, county) {
+    const key = name + '||' + county;
+    if (selectedRow === key) tr.classList.add('selected');
+    tr.addEventListener('click', () => {
+      tbody.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
+      tr.classList.add('selected');
+      selectedRow = key;
+      flyToMuni(name, county);
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Muni-first view
+  // -------------------------------------------------------------------------
+
+  const MUNI_COLS = [
+    { label: 'Municipality',     col: 'municipality_name' },
+    { label: 'County',           col: 'county' },
+    { label: 'Senate Districts', col: null },          // aggregated, not sortable
+    { label: 'Population',       col: 'population',              num: true },
+    { label: 'Affordable %',     col: 'affordable_housing_share', num: true },
+    { label: 'Status',           col: 'non_exempt_status' },
+  ];
+
+  function renderMuniHeaders() {
+    const tr = document.createElement('tr');
+    MUNI_COLS.forEach(({ label, col, num }) => {
+      const th = document.createElement('th');
+      if (col) {
+        th.dataset.col = col;
+        const arrow = document.createElement('span');
+        arrow.className = 'sort-arrow';
+        th.textContent = label;
+        th.appendChild(arrow);
+        if (num) th.classList.add('num');
+        if (col === sortCol) th.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+        th.addEventListener('click', () => {
+          if (sortCol === col) {
+            sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+          } else {
+            sortCol = col;
+            sortDir = col === 'affordable_housing_share' ? 'asc' : 'asc';
+          }
+          renderTable();
+        });
+      } else {
+        th.textContent = label;
+        th.className   = 'no-sort';
+      }
+      tr.appendChild(th);
+    });
+    thead.replaceChildren(tr);
+  }
+
+  function renderMuniView() {
+    let rows = munisAgg.filter(rowPasses);
+
+    rows.sort((a, b) => {
+      let va = a[sortCol] != null ? a[sortCol] : '';
+      let vb = b[sortCol] != null ? b[sortCol] : '';
+      if (typeof va === 'string') va = va.toLowerCase();
+      if (typeof vb === 'string') vb = vb.toLowerCase();
+      if (va < vb) return sortDir === 'asc' ? -1 :  1;
+      if (va > vb) return sortDir === 'asc' ?  1 : -1;
+      if (sortCol !== 'municipality_name') {
+        const sa = (a.municipality_name || '').toLowerCase();
+        const sb = (b.municipality_name || '').toLowerCase();
+        return sa < sb ? -1 : sa > sb ? 1 : 0;
+      }
+      return 0;
+    });
+
+    exportRows = rows;
+    rowCount.textContent = rows.length.toLocaleString() + ' municipalities';
+
+    const frag = document.createDocumentFragment();
+    rows.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.className = 'muni-row';
+      tr.title = 'Click to locate on map';
+      attachRowClick(tr, r.municipality_name, r.county);
+
+      tr.appendChild(makeTd(r.municipality_name || ''));
+      tr.appendChild(makeTd(r.county || ''));
+      tr.appendChild(makeTd(r.senate_districts.join(', ')));
+      tr.appendChild(makeTd((r.population || 0).toLocaleString(), true));
+      tr.appendChild(makeTd(shareStr(r.affordable_housing_share), true));
+      tr.appendChild(makeBadgeTd(r._bucket, r.non_exempt_status));
+
+      frag.appendChild(tr);
+    });
+    tbody.replaceChildren(frag);
+  }
+
+  // -------------------------------------------------------------------------
+  // District-first view
+  // -------------------------------------------------------------------------
+
+  const DIST_COLS = [
+    { label: 'Municipality',  num: false },
+    { label: 'County',        num: false },
+    { label: 'Population',    num: true  },
+    { label: 'Affordable %',  num: true  },
+    { label: 'Status',        num: false },
+  ];
+  const DIST_NCOLS = DIST_COLS.length;
+
+  function renderDistrictHeaders() {
+    const tr = document.createElement('tr');
+    DIST_COLS.forEach(({ label, num }) => {
+      const th = document.createElement('th');
+      th.textContent = label;
+      th.className   = 'no-sort' + (num ? ' num' : '');
+      tr.appendChild(th);
+    });
+    thead.replaceChildren(tr);
+  }
+
+  function renderDistrictView() {
+    const frag = document.createDocumentFragment();
+    let totalMunis     = 0;
+    let totalDistricts = 0;
+    const allRows = [];  // for export
+
+    districtGroups.forEach(({ district, rows }) => {
+      const filtered = rows.filter(rowPasses);
+      if (filtered.length === 0) return;
+      totalDistricts++;
+      totalMunis += filtered.length;
+
+      // District header
+      const headerTr = document.createElement('tr');
+      headerTr.className = 'district-header';
+      headerTr.title = 'Click to zoom map to this district';
+      headerTr.addEventListener('click', () => flyToDistrict(district));
+      const headerTd = document.createElement('td');
+      headerTd.colSpan = DIST_NCOLS;
+      headerTd.textContent = 'Senate District ' + district;
+      headerTr.appendChild(headerTd);
+      frag.appendChild(headerTr);
+
+      filtered.forEach(r => {
+        allRows.push(r);
+        const tr = document.createElement('tr');
+        tr.className = 'district-member';
+        tr.title = 'Click to locate on map';
+        attachRowClick(tr, r.municipality_name, r.county);
+
+        tr.appendChild(makeTd(r.municipality_name || ''));
+        tr.appendChild(makeTd(r.county || ''));
+        tr.appendChild(makeTd((r.population || 0).toLocaleString(), true));
+        tr.appendChild(makeTd(shareStr(r.affordable_housing_share), true));
+        tr.appendChild(makeBadgeTd(r._bucket, r.non_exempt_status));
+
+        frag.appendChild(tr);
+      });
+    });
+
+    exportRows = allRows;
+    rowCount.textContent =
+      totalMunis.toLocaleString() + ' municipalities across ' +
+      totalDistricts.toLocaleString() + ' districts';
+    tbody.replaceChildren(frag);
+  }
+
+  // -------------------------------------------------------------------------
+  // Main render
+  // -------------------------------------------------------------------------
+
+  function renderTable() {
+    if (currentView === 'muni') {
+      renderMuniHeaders();
+      renderMuniView();
+    } else {
+      renderDistrictHeaders();
+      renderDistrictView();
+    }
+  }
+
+  function refresh() {
+    if (muniLayer) {
+      muniLayer.eachLayer(layer => {
+        if (layer.feature) layer.setStyle(muniStyle(layer.feature));
+      });
+    }
+    renderTable();
+  }
+
+  // -------------------------------------------------------------------------
+  // View toggle
+  // -------------------------------------------------------------------------
+
+  document.getElementById('view-muni').addEventListener('click', function () {
+    if (currentView === 'muni') return;
+    currentView = 'muni';
+    sortCol = 'affordable_housing_share';
+    sortDir = 'asc';
+    this.classList.add('active');
+    document.getElementById('view-district').classList.remove('active');
+    renderTable();
+  });
+
+  document.getElementById('view-district').addEventListener('click', function () {
+    if (currentView === 'district') return;
+    currentView = 'district';
+    this.classList.add('active');
+    document.getElementById('view-muni').classList.remove('active');
+    renderTable();
+  });
+
+  // -------------------------------------------------------------------------
+  // Bucket filter buttons
+  // -------------------------------------------------------------------------
+
+  document.querySelectorAll('.bucket-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const b = btn.dataset.bucket;
+      if (activeBuckets.has(b)) {
+        if (activeBuckets.size > 1) {
+          activeBuckets.delete(b);
+          btn.classList.remove('active');
+        }
+      } else {
+        activeBuckets.add(b);
+        btn.classList.add('active');
+      }
+      refresh();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Population preset buttons
+  // -------------------------------------------------------------------------
+
+  document.querySelectorAll('.pop-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById('pop-min').value = '';
+      document.getElementById('pop-max').value = '';
+      customPopRange = null;
+      document.querySelectorAll('.pop-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const pop = btn.dataset.pop;
+      activePopRange = pop === 'all' ? null : (() => {
+        const p = pop.split('-');
+        return [Number(p[0]), Number(p[1])];
+      })();
+      refresh();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Custom population range
+  // -------------------------------------------------------------------------
+
+  function parseCustomPop() {
+    const lo = document.getElementById('pop-min').value.trim();
+    const hi = document.getElementById('pop-max').value.trim();
+    if (!lo && !hi) { customPopRange = null; return; }
+    customPopRange = [lo ? Number(lo) : 0, hi ? Number(hi) : Infinity];
+    document.querySelectorAll('.pop-btn').forEach(b => b.classList.remove('active'));
+    activePopRange = null;
+  }
+
+  ['pop-min', 'pop-max'].forEach(id => {
+    document.getElementById(id).addEventListener('input', () => { parseCustomPop(); refresh(); });
+  });
+
+  // -------------------------------------------------------------------------
+  // Custom share range
+  // -------------------------------------------------------------------------
+
+  function parseCustomShare() {
+    const lo = document.getElementById('share-min').value.trim();
+    const hi = document.getElementById('share-max').value.trim();
+    if (!lo && !hi) { customShareRange = null; return; }
+    customShareRange = [lo ? Number(lo) : 0, hi ? Number(hi) : 100];
+  }
+
+  ['share-min', 'share-max'].forEach(id => {
+    document.getElementById(id).addEventListener('input', () => { parseCustomShare(); refresh(); });
+  });
+
+  // -------------------------------------------------------------------------
+  // Senate district label toggle
+  // -------------------------------------------------------------------------
+
+  document.getElementById('label-toggle').addEventListener('click', function () {
+    labelsOn = !labelsOn;
+    this.classList.toggle('active', labelsOn);
+    senateLayer.eachLayer(layer => {
+      const id = layer.feature.properties.senate_district;
+      if (labelsOn) {
+        layer.bindTooltip(String(id), {
+          permanent: true, direction: 'center', className: 'district-label',
+        });
+      } else {
+        layer.unbindTooltip();
+      }
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Search
+  // -------------------------------------------------------------------------
+
+  document.getElementById('search-box').addEventListener('input', e => {
+    searchTerm = e.target.value.trim().toLowerCase();
+    renderTable();
+  });
+
+  // -------------------------------------------------------------------------
+  // CSV export
+  // -------------------------------------------------------------------------
+
+  document.getElementById('export-btn').addEventListener('click', () => {
+    function csvCell(v) {
+      const s = v == null ? '' : String(v);
+      return (s.includes(',') || s.includes('"') || s.includes('\n'))
+        ? '"' + s.replace(/"/g, '""') + '"'
+        : s;
+    }
+
+    let headers, lines;
+    if (currentView === 'muni') {
+      headers = ['Municipality', 'County', 'Senate Districts', 'Population',
+                 'Affordable Housing Share', 'Status'];
+      lines = exportRows.map(r => [
+        r.municipality_name,
+        r.county,
+        r.senate_districts.join(';'),
+        r.population,
+        r.affordable_housing_share,
+        r.non_exempt_status,
+      ].map(csvCell).join(','));
+    } else {
+      headers = ['Senate District', 'Municipality', 'County', 'Population',
+                 'Affordable Housing Share', 'Status'];
+      lines = exportRows.map(r => [
+        r.senate_district,
+        r.municipality_name,
+        r.county,
+        r.population,
+        r.affordable_housing_share,
+        r.non_exempt_status,
+      ].map(csvCell).join(','));
+    }
+
+    const csv  = [headers.map(csvCell).join(','), ...lines].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'ahpaa_senate_crosswalk.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  // -------------------------------------------------------------------------
+  // Footer
+  // -------------------------------------------------------------------------
+
+  const sc = meta.spurious_count || 0;
+  if (sc > 0) {
+    const span = document.getElementById('footer-spurious');
+    span.textContent =
+      sc.toLocaleString() + ' micro-overlap(s) flagged for manual review — see output/spurious_review.csv';
+  }
+
+  // -------------------------------------------------------------------------
+  // Initial render
+  // -------------------------------------------------------------------------
+
+  renderTable();
+
+})();
+</script>
+</body>
+</html>
