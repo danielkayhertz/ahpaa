@@ -35,7 +35,8 @@ AHPAA_PATH = (
 PLACES_SHP  = DATA_DIR / "il_places_2023" / "tl_2023_17_place.shp"
 COUNTY_SHP  = next((DATA_DIR / "il_counties_2023").glob("*.shp"), None)
 
-# Spurious-overlap thresholds (AND logic ... both must be true to flag as micro)
+# Micro-overlap thresholds (AND logic: both must be true). Micro overlaps are
+# the ONLY rows excluded from the crosswalk.
 MIN_OVERLAP_M2  = 10_000   # 1 hectare
 MIN_OVERLAP_PCT = 0.5      # 0.5% of the smaller polygon
 
@@ -53,6 +54,7 @@ CROSSWALK_RENAME = {
     "Non-Exempt Status":        "non_exempt_status",
     "overlap_area_m2":          "overlap_area_m2",
     "overlap_pct_of_smaller":   "overlap_pct_of_smaller",
+    "pct_of_municipality":      "pct_of_municipality",
     "polsby_popper":            "polsby_popper",
 }
 
@@ -193,11 +195,35 @@ def join_ahpaa_to_places(
     df: pd.DataFrame, places_gdf: gpd.GeoDataFrame
 ) -> gpd.GeoDataFrame:
     print("Joining AHPAA ->TIGER Places ...")
+    # TIGER gives some places an alternate name in parentheses, e.g.
+    # "Alvan (Alvin)". Index the parenthetical name too.
+    alt = places_gdf[places_gdf["NAME"].str.contains(r"\(.+\)", regex=True)].copy()
+    alt["name_norm"] = alt["NAME"].str.extract(r"\((.+)\)", expand=False).apply(normalize)
+    places_gdf = pd.concat([places_gdf, alt], ignore_index=True)
+
+    # IHDA appends " City" / " Village" to tell same-named municipalities apart
+    # (Wilmington City / Wilmington Village). TIGER's NAME does not carry it.
+    # Strip the suffix ONLY for those disambiguated pairs: other names such as
+    # Beecher City or Mason City genuinely end in "City".
+    # Rule: strip only when the SAME base appears with both suffixes
+    # (X City and X Village). Beecher City vs. Beecher is not such a pair.
+    base = df["Place"].str.replace(r" (City|Village)$", "", regex=True)
+    suffixed = df["Place"].str.contains(r" (?:City|Village)$", regex=True)
+    disambig = suffixed & base.where(suffixed).duplicated(keep=False) & suffixed
+    df = df.copy()
+    df.loc[disambig, "place_norm"] = base[disambig].apply(normalize)
+    print(f"  Suffix-disambiguated IHDA names: {sorted(df.loc[disambig, 'Place'])}")
+
     merged = df.merge(
         places_gdf,
         left_on=["place_norm", "county_norm"],
         right_on=["name_norm", "county_name_norm"],
         how="left",
+    )
+
+    # Cardinality: every AHPAA row must map to at most one TIGER place
+    assert len(merged) == len(df), (
+        f"AHPAA->TIGER join fanned out: {len(df)} rows in, {len(merged)} out"
     )
 
     unmatched = merged[merged["geometry"].isna()][["Place", "County"]].copy()
@@ -313,8 +339,13 @@ def compute_crosswalk(
         * 100
     )
 
-    # Polsby-Popper compactness score: 4pi*area / perimeter^2
-    # Low values = thin sliver = likely boundary-drawing artifact
+    # Unambiguous share of the municipality's own area (overlap_pct_of_smaller
+    # switches denominator between municipality and district)
+    intersected["pct_of_municipality"] = (
+        intersected["overlap_area_m2"] / intersected["muni_area_m2"] * 100
+    )
+
+    # Polsby-Popper compactness score: 4pi*area / perimeter^2 (informational)
     perimeter = intersected.geometry.length
     intersected["polsby_popper"] = (
         (4 * math.pi * intersected["overlap_area_m2"]) / perimeter.pow(2)
@@ -326,7 +357,13 @@ def compute_crosswalk(
         & (intersected["overlap_pct_of_smaller"] < MIN_OVERLAP_PCT)
     )
     is_sliver  = intersected["polsby_popper"] < POLSBY_POPPER_THRESHOLD
-    is_spurious = is_micro | is_sliver
+    # Only size decides exclusion. Compactness is NOT evidence that an overlap is
+    # spurious: district lines follow rivers and rail, and irregular cities
+    # (Joliet, Springfield, Rockford) produce large, real, non-compact overlaps.
+    # An OR here once discarded Joliet's districts 43 (58% of the city) and 49
+    # (32%). See output/adversarial-review-2026-11-18.md. polsby_popper is kept
+    # as an informational column only.
+    is_spurious = is_micro
 
     # Assign human-readable reason to each flagged row
     intersected["flag_reason"] = np.select(

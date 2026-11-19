@@ -32,13 +32,17 @@ DASHBOARD_JS    = OUTPUT_DIR / "dashboard_data.js"
 
 def assign_bucket(row: pd.Series) -> str:
     """
-    Non-Exempt  — authoritative per IHDA's non_exempt_status column
-    affordable-low  — Exempt AND share ≤ 0.25  (10–25%)
-    affordable-high — Exempt AND share > 0.25  (>25%)
+    non-exempt      -- IHDA Non-Exempt (share < 10%)
+    exempt-small    -- IHDA Exempt but share < 10%: exempt by population
+                       (AHPAA covers only places of 1,000+ people), not by share
+    affordable-low  -- Exempt AND 10% <= share <= 25%
+    affordable-high -- Exempt AND share > 25%
     """
     if str(row.get("non_exempt_status", "")).strip() == "Non-Exempt":
         return "non-exempt"
     share = row.get("affordable_housing_share", 0) or 0
+    if share < 0.10:
+        return "exempt-small"
     return "affordable-low" if share <= 0.25 else "affordable-high"
 
 
@@ -71,7 +75,7 @@ def main() -> None:
     # Aggregate senate districts per (Place, County) from the crosswalk
     districts_per_muni = (
         crosswalk.groupby(["municipality_name", "county"])["senate_district"]
-        .apply(lambda x: sorted(set(x.astype(str))))
+        .apply(lambda x: sorted(set(x.astype(str)), key=int))
         .reset_index()
         .rename(columns={"senate_district": "senate_districts"})
     )

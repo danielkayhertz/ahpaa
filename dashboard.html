@@ -107,6 +107,7 @@
   }
   .badge-non-exempt      { background: #fde8e8; color: #b91c1c; }
   .badge-affordable-low  { background: #fef3e2; color: #92400e; }
+  .badge-exempt-small    { background: #ececf4; color: #44446a; }
   .badge-affordable-high { background: #dcfce7; color: #166534; }
 
   .district-label {
@@ -176,7 +177,7 @@ function polylabel(polygon, precision) {
 
 <header>
   <h1>AHPAA Affordability &times; Illinois Senate Districts</h1>
-  <p>2023 IHDA Affordable Housing Planning and Accountability Act &mdash; municipality crosswalk</p>
+  <p>2023 IHDA Affordable Housing Planning and Appeal Act &mdash; municipality crosswalk</p>
 </header>
 
 <div class="container">
@@ -189,6 +190,10 @@ function polylabel(polygon, precision) {
         <button class="bucket-btn active" data-bucket="non-exempt">
           <span class="swatch" style="background:#d73027"></span>
           Non-Exempt (&lt;10%)
+        </button>
+        <button class="bucket-btn active" data-bucket="exempt-small" title="Exempt because population is under 1,000, not because of share">
+          <span class="swatch" style="background:#8c8cb4"></span>
+          Exempt, pop. &lt;1,000 (&lt;10%)
         </button>
         <button class="bucket-btn active" data-bucket="affordable-low">
           <span class="swatch" style="background:#fc8d59"></span>
@@ -264,7 +269,7 @@ function polylabel(polygon, precision) {
   </div>
 
   <footer>
-    <span>Source: IHDA AHPAA 2023 &middot; Census TIGER/Line 2023 &middot; ILSBE 2020 Senate Districts</span>
+    <span>Source: IHDA AHPAA 2023 &middot; Census TIGER/Line 2023 &middot; ILSBE Senate Districts (2021 plan, in effect since 2022) &middot; shares from ACS 2017&ndash;2021 5-year</span>
     <span id="footer-spurious"></span>
   </footer>
 
@@ -353,7 +358,7 @@ function polylabel(polygon, precision) {
   // -------------------------------------------------------------------------
 
   let currentView    = 'muni';
-  let activeBuckets  = new Set(['non-exempt', 'affordable-low', 'affordable-high']);
+  let activeBuckets  = new Set(['non-exempt', 'exempt-small', 'affordable-low', 'affordable-high']);
   let activePopRange  = null;
   let customPopRange  = null;
   let customShareRange = null;
@@ -371,6 +376,7 @@ function polylabel(polygon, precision) {
 
   const BUCKET_COLOR = {
     'non-exempt':      '#d73027',
+    'exempt-small':    '#8c8cb4',
     'affordable-low':  '#fc8d59',
     'affordable-high': '#1a9850',
     'unknown':         '#aaaaaa',
@@ -576,8 +582,13 @@ function polylabel(polygon, precision) {
       const distStr = Array.isArray(row.senate_districts)
         ? row.senate_districts.join(' ')
         : (row.senate_district != null ? String(row.senate_district) : '');
-      const hay = (row.municipality_name + ' ' + row.county + ' ' + distStr).toLowerCase();
-      if (!hay.includes(searchTerm)) return false;
+      const hay = (row.municipality_name + ' ' + row.county).toLowerCase();
+      // A bare number matches a senate district exactly ("4" -> SD 4, not 14 or 40)
+      const isDistrictQuery = /^\d+$/.test(searchTerm);
+      const hit = isDistrictQuery
+        ? distStr.split(' ').includes(String(Number(searchTerm)))
+        : hay.includes(searchTerm);
+      if (!hit) return false;
     }
     return true;
   }
@@ -588,6 +599,7 @@ function polylabel(polygon, precision) {
 
   const BUCKET_LABELS = {
     'non-exempt':      'Non-Exempt',
+    'exempt-small':    'Exempt (pop. <1,000)',
     'affordable-low':  'Affordable (10–25%)',
     'affordable-high': 'Affordable (>25%)',
   };
@@ -740,7 +752,8 @@ function polylabel(polygon, precision) {
 
   function renderDistrictView() {
     const frag = document.createDocumentFragment();
-    let totalMunis     = 0;
+    const distinctMunis = new Set();
+    let totalPairs     = 0;
     let totalDistricts = 0;
     const allRows = [];  // for export
 
@@ -748,7 +761,8 @@ function polylabel(polygon, precision) {
       const filtered = rows.filter(rowPasses);
       if (filtered.length === 0) return;
       totalDistricts++;
-      totalMunis += filtered.length;
+      totalPairs += filtered.length;
+      filtered.forEach(r => distinctMunis.add(r.municipality_name + '||' + r.county));
 
       // District header
       const headerTr = document.createElement('tr');
@@ -780,8 +794,9 @@ function polylabel(polygon, precision) {
 
     exportRows = allRows;
     rowCount.textContent =
-      totalMunis.toLocaleString() + ' municipalities across ' +
-      totalDistricts.toLocaleString() + ' districts';
+      distinctMunis.size.toLocaleString() + ' municipalities across ' +
+      totalDistricts.toLocaleString() + ' districts (' +
+      totalPairs.toLocaleString() + ' municipality–district rows)';
     tbody.replaceChildren(frag);
   }
 
@@ -987,7 +1002,7 @@ function polylabel(polygon, precision) {
   if (sc > 0) {
     const span = document.getElementById('footer-spurious');
     span.textContent =
-      sc.toLocaleString() + ' micro-overlap(s) flagged for manual review — see output/spurious_review.csv';
+      sc.toLocaleString() + ' boundary overlap(s) under 1 hectare and under 0.5% excluded as mapping noise — see output/spurious_review.csv';
   }
 
   // -------------------------------------------------------------------------
